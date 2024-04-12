@@ -378,6 +378,7 @@ def train():
     ) = parser.parse_args_into_dataclasses()
 
     # This serves for single-gpu qlora.
+    # 针对单个 GPU 进行 QLora（一种低秩正则化技术）相关的操作
     if getattr(training_args, 'deepspeed', None) and int(os.environ.get("WORLD_SIZE", 1))==1:
         training_args.distributed_state.distributed_type = DistributedType.DEEPSPEED
 
