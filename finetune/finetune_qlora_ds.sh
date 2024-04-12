@@ -2,30 +2,30 @@
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 DIR=`pwd`
 
-# Guide:
-# This script supports distributed training on multi-gpu workers (as well as single-worker training).
-# Please set the options below according to the comments.
-# For multi-gpu workers training, these options should be manually set for each worker.
-# After setting the options, please run the script on each worker.
+# 该脚本支持在多GPU工作节点上进行分布式训练（以及单工作节点训练）。
+# 请根据注释设置以下选项。
+# 对于多GPU工作节点训练，应手动为每个工作节点设置这些选项。
+# 设置选项后，请在每个工作节点上运行脚本。
 
-# Number of GPUs per GPU worker
+# 每个GPU工作节点上的GPU数量
 GPUS_PER_NODE=$(python -c 'import torch; print(torch.cuda.device_count())')
 
-# Number of GPU workers, for single-worker training, please set to 1
+# GPU工作节点的数量，对于单工作节点训练，请设置为1
 NNODES=${NNODES:-1}
 
-# The rank of this worker, should be in {0, ..., WORKER_CNT-1}, for single-worker training, please set to 0
+# 此工作节点的排名，应在{0，...，WORKER_CNT-1}中，对于单工作节点训练，请设置为0
 NODE_RANK=${NODE_RANK:-0}
 
-# The ip address of the rank-0 worker, for single-worker training, please set to localhost
+# 排名0工作节点的IP地址，对于单工作节点训练，请设置为localhost
 MASTER_ADDR=${MASTER_ADDR:-localhost}
 
-# The port for communication
+# 通信端口
 MASTER_PORT=${MASTER_PORT:-6001}
 
-MODEL="Qwen/Qwen-7B-Chat-Int4" # Set the path if you do not want to load from huggingface directly
-# ATTENTION: specify the path to your training data, which should be a json file consisting of a list of conversations.
-# See the section for finetuning in README for more information.
+MODEL="Qwen/Qwen-7B-Chat-Int4"
+# 如果不想直接从huggingface加载，请设置路径
+# 注意：指定训练数据的路径，它应该是一个包含对话列表的json文件。
+# 有关更多信息，请参阅README中的微调部分。
 DATA="path_to_data"
 
 function usage() {
@@ -64,7 +64,7 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 
-# Remember to use --fp16 instead of --bf16 due to autogptq
+# 由于autogptq，请记住使用--fp16而不是--bf16
 torchrun $DISTRIBUTED_ARGS finetune.py \
     --model_name_or_path $MODEL \
     --data_path $DATA \
