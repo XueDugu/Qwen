@@ -86,7 +86,7 @@ def maybe_zero_3(param):
 # Borrowed from peft.utils.get_peft_model_state_dict
 '''
 作用:筛选出符合条件的命名参数并应用maybe_zero_3处理参数，返回一个包含已微调模型状态字典的新字典
-输入:named_params,bias
+输入:named_params,bias(本地等级)
 输出:保存模型状态的字典
 选定的代码是一个名为 get_peft_state_maybe_zero_3 的函数。这个函数用于收集使用 PyTorch Lora 库
 微调过的 PyTorch 模型的状态字典。该函数接受两个参数：named_params，一个包含模型命名参数的字典，和
@@ -130,7 +130,7 @@ def rank0_print(*args):
 
 '''
 作用:收集状态字典并根据本地等级是否输出
-输入:trainer,output_dir,bias
+输入:trainer(训练器对象，负责训练模型),output_dir(输出路径),bias(本地等级)
 选定的代码是一个名为 safe_save_model_for_hf_trainer 的函数。该函数负责以与 Hugging Face 的 
 Trainer 类兼容的方式保存模型的状态字典。它首先检查是否启用了 deepspeed 库的 zero3 模式，这是一种
 允许使用 16 位浮点精度进行训练的技术。如果启用了 zero3 模式，则收集整合后的 16 位状态字典。否则，
@@ -153,9 +153,10 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
     if trainer.args.should_save and trainer.args.local_rank == 0:
         trainer._save(output_dir, state_dict=state_dict)
 
+
 '''
 作用:进行预训练
-输入:sources(),tokenizer(),max_len(最大长度),system_message()
+输入:sources(输入的原始数据，用于提供对话列表),tokenizer(分词器，用于将对话文本转换为模型可接受的输入格式),max_len(最大长度),system_message(将在每个对话开头添加的系统消息)
 输出:包含已处理对话的输入 ID、目标 ID 和注意力掩码的字典
 所选代码是一个用于训练语言模型的较大 Python 脚本的一部分。该代码定义了一个名为 preprocess 的函数，该函数以
 对话列表（来源）、分词器和输入序列的最大长度为输入。然后，该函数对输入列表中的每个对话应用一个提示模板，并
