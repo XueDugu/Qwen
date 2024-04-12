@@ -2,30 +2,24 @@
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 DIR=`pwd`
 
-# Guide:
-# This script supports distributed training on multi-gpu workers (as well as single-worker training).
-# Please set the options below according to the comments.
-# For multi-gpu workers training, these options should be manually set for each worker.
-# After setting the options, please run the script on each worker.
-
-# Number of GPUs per GPU worker
+# 每个 GPU worker 上的 GPU 数量
 GPUS_PER_NODE=$(python -c 'import torch; print(torch.cuda.device_count())')
 
-# Number of GPU workers, for single-worker training, please set to 1
+# GPU worker 的数量，默认为 1
 NNODES=${NNODES:-1}
 
-# The rank of this worker, should be in {0, ..., WORKER_CNT-1}, for single-worker training, please set to 0
+# 当前 worker 的排名，应该在 {0, ..., WORKER_CNT-1} 范围内，默认为 0
 NODE_RANK=${NODE_RANK:-0}
 
-# The ip address of the rank-0 worker, for single-worker training, please set to localhost
+# 排名为 0 的 worker 的 IP 地址，单 worker 训练时设为 localhost
 MASTER_ADDR=${MASTER_ADDR:-localhost}
 
-# The port for communication
+# 通信端口
 MASTER_PORT=${MASTER_PORT:-6001}
 
-MODEL="Qwen/Qwen-7B" # Set the path if you do not want to load from huggingface directly
-# ATTENTION: specify the path to your training data, which should be a json file consisting of a list of conversations.
-# See the section for finetuning in README for more information.
+# 模型路径
+MODEL="Qwen/Qwen-7B"
+# 数据路径
 DATA="path_to_data"
 
 function usage() {
@@ -34,6 +28,7 @@ Usage: bash finetune/finetune_ds.sh [-m MODEL_PATH] [-d DATA_PATH]
 '
 }
 
+# 解析命令行参数
 while [[ "$1" != "" ]]; do
     case $1 in
         -m | --model )
@@ -56,6 +51,7 @@ while [[ "$1" != "" ]]; do
     shift
 done
 
+# 分布式参数设置
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
     --nnodes $NNODES \
@@ -64,6 +60,7 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 
+# 使用 torchrun 执行 finetune.py 脚本
 torchrun $DISTRIBUTED_ARGS finetune.py \
     --model_name_or_path $MODEL \
     --data_path $DATA \
