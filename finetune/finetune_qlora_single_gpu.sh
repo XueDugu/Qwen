@@ -2,17 +2,20 @@
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 DIR=`pwd`
 
-MODEL="Qwen/Qwen-7B-Chat-Int4" # Set the path if you do not want to load from huggingface directly
-# ATTENTION: specify the path to your training data, which should be a json file consisting of a list of conversations.
-# See the section for finetuning in README for more information.
+# 模型路径，如果不想直接从huggingface加载，请设置路径
+MODEL="Qwen/Qwen-7B-Chat-Int4"
+
+# 数据路径，请设置为包含对话列表的json文件的路径
 DATA="path_to_data"
 
+# 函数：用法说明
 function usage() {
     echo '
 Usage: bash finetune/finetune_qlora_single_gpu.sh [-m MODEL_PATH] [-d DATA_PATH]
 '
 }
 
+# 解析命令行参数
 while [[ "$1" != "" ]]; do
     case $1 in
         -m | --model )
@@ -35,9 +38,10 @@ while [[ "$1" != "" ]]; do
     shift
 done
 
+# 设置可见的GPU设备
 export CUDA_VISIBLE_DEVICES=0
 
-# Remember to use --fp16 instead of --bf16 due to autogptq
+# 执行finetune.py脚本
 python finetune.py \
   --model_name_or_path $MODEL \
   --data_path $DATA \
