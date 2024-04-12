@@ -65,7 +65,7 @@ class LoraArguments:
 '''
 作用:确保代码可以处理常规的 DeepSpeed 参数和 Zero3 特定的参数
 输入:param
-输出:param.data.detach().cpu().clone()
+输出:从计算图中分离的param
 选定的代码是一个函数，它接受一个张量 param 作为输入，并返回一个张量。该函数检查输入张量是否
 具有 ds_id 属性，该属性指示它是一个 DeepSpeed 参数。如果是，函数将使用 
 zero.GatheredParameters 上下文管理器来收集张量的数据，并将其作为新张量返回。否则，它只是
