@@ -1,5 +1,5 @@
 # This code is based on the revised code from fastchat based on tatsu-lab/stanford_alpaca.
-
+# 这段代码是基于 fastchat 的修订版本，该版本基于 tatsu-lab/stanford_alpaca 的代码。
 
 from dataclasses import dataclass, field
 import json
@@ -62,7 +62,17 @@ class LoraArguments:
     lora_bias: str = "none"
     q_lora: bool = False
 
-
+'''
+作用:确保代码可以处理常规的 DeepSpeed 参数和 Zero3 特定的参数
+输入:param
+输出:param.data.detach().cpu().clone()
+选定的代码是一个函数，它接受一个张量 param 作为输入，并返回一个张量。该函数检查输入张量是否
+具有 ds_id 属性，该属性指示它是一个 DeepSpeed 参数。如果是，函数将使用 
+zero.GatheredParameters 上下文管理器来收集张量的数据，并将其作为新张量返回。否则，它只是
+从计算图中分离张量，并将其作为新张量返回。这个函数用于确保代码能够与 DeepSpeed 的 Zero3 模式
+一起工作，该模式允许在使用更少内存的情况下以 16 位浮点精度进行训练。通过使用这个函数，
+可以确保代码可以处理常规的 DeepSpeed 参数和 Zero3 特定的参数。
+'''
 def maybe_zero_3(param):
     if hasattr(param, "ds_id"):
         assert param.ds_status == ZeroParamStatus.NOT_AVAILABLE
@@ -74,6 +84,19 @@ def maybe_zero_3(param):
 
 
 # Borrowed from peft.utils.get_peft_model_state_dict
+'''
+作用:筛选出符合条件的命名参数并应用maybe_zero_3处理参数，返回一个包含已微调模型状态字典的新字典
+输入:named_params,bias
+输出:保存模型状态的字典
+选定的代码是一个名为 get_peft_state_maybe_zero_3 的函数。这个函数用于收集使用 PyTorch Lora 库
+微调过的 PyTorch 模型的状态字典。该函数接受两个参数：named_params，一个包含模型命名参数的字典，和
+bias，一个指定要包含在返回字典中的偏置类型的字符串。函数首先检查 bias 参数的值，并相应地初始化 
+to_return 字典。然后，它遍历 named_params 字典，并使用符合指定偏置标准的命名参数填充 to_return 
+字典。然后，函数对 to_return 字典中的每个值应用 maybe_zero_3 函数。maybe_zero_3 函数是一个实用
+函数，用于处理 ZeRO3 优化技术，该技术允许使用 16 位浮点精度进行训练。这个函数用于 consolida 状态
+字典，并确保它可以与 ZeRO3 一起使用。最后，函数返回 to_return 字典，其中包含使用 PyTorch Lora 库
+微调的模型的状态字典。这个字典可以用于保存模型的状态，并在将来从该状态继续训练。
+'''
 def get_peft_state_maybe_zero_3(named_params, bias):
     if bias == "none":
         to_return = {k: t for k, t in named_params if "lora_" in k}
@@ -105,7 +128,16 @@ def rank0_print(*args):
     if local_rank == 0:
         print(*args)
 
-
+'''
+作用:收集状态字典并根据本地等级是否输出
+输入:trainer,output_dir,bias
+选定的代码是一个名为 safe_save_model_for_hf_trainer 的函数。该函数负责以与 Hugging Face 的 
+Trainer 类兼容的方式保存模型的状态字典。它首先检查是否启用了 deepspeed 库的 zero3 模式，这是一种
+允许使用 16 位浮点精度进行训练的技术。如果启用了 zero3 模式，则收集整合后的 16 位状态字典。否则，
+它会检查训练参数是否指定使用了 Lora（一种将低秩扰动应用于模型权重的技术）。如果使用了 Lora，则在
+应用 Lora 后收集状态字典。如果既没有使用 zero3 模式也没有使用 Lora，则收集模型的常规状态字典。最后，
+如果训练参数指定应该保存模型且本地等级为 0，则将收集到的状态字典保存到指定的输出目录中。
+'''
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str, bias="none"):
     """Collects the state dict and dump to disk."""
     # check if zero3 mode enabled
@@ -121,7 +153,23 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
     if trainer.args.should_save and trainer.args.local_rank == 0:
         trainer._save(output_dir, state_dict=state_dict)
 
-
+'''
+作用:进行预训练
+输入:sources(),tokenizer(),max_len(最大长度),system_message()
+输出:包含已处理对话的输入 ID、目标 ID 和注意力掩码的字典
+所选代码是一个用于训练语言模型的较大 Python 脚本的一部分。该代码定义了一个名为 preprocess 的函数，该函数以
+对话列表（来源）、分词器和输入序列的最大长度为输入。然后，该函数对输入列表中的每个对话应用一个提示模板，并
+返回一个包含已处理对话的输入 ID、目标 ID 和注意力掩码的字典。
+提示模板的应用如下：
+1.在每个对话的开头添加一个系统消息。
+2.将每个对话分割为用户和助手部分。
+3.对于每个用户和助手部分，添加一个提示令牌（im_start）在开头，后跟一个表示用户或助手消息的令牌序列。
+4.如果对话来自用户，则在用户消息的末尾添加一个 im_end 令牌。如果对话来自助手，则助手消息后跟一个 im_end 令牌。
+5.然后将已处理对话的输入 ID、目标 ID 和注意力掩码添加到输出字典中。
+输入 ID 用于在训练期间表示输入序列。目标 ID 用于在训练期间表示输出序列。注意力掩码用于屏蔽输入序列中的填充令牌。
+preprocess 函数用于为使用 Hugging Face Transformers 库训练语言模型的输入数据进行预处理。然后，
+预处理后的数据用作 Hugging Face Transformers 库中 Trainer 类的输入，该类负责训练语言模型。
+'''
 def preprocess(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
@@ -175,10 +223,26 @@ def preprocess(
         attention_mask=input_ids.ne(tokenizer.pad_token_id),
     )
 
-
+# 监督学习
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
-
+    '''
+    作用:类初始化，加载和预处理用于训练语言模型的数据
+    输入:raw_data, tokenizer, max_len
+    所选代码是用于训练语言模型的 Python 脚本的一部分。该代码是一个名为 SupervisedDataset 的自定义 
+    PyTorch Dataset 类的 __init__ 方法的一部分。这个类用于加载和预处理用于训练语言模型的数据。
+    SupervisedDataset 类的 __init__ 方法接受三个参数：raw_data、tokenizer 和 max_len。raw_data 参数是
+    包含训练数据的字典列表。tokenizer 参数是 transformers.PreTrainedTokenizer 类的实例，用于对输入数据进行
+    分词。max_len 参数是一个整数，指定输入序列的最大长度。
+    在 __init__ 方法内部，代码首先打印一条消息，指示它正在格式化输入。然后，它从 raw_data 列表中的每个字典中
+    提取“conversations”字段，并将其存储在名为 sources 的变量中。
+    接下来，代码调用 preprocess 函数，传递 sources、tokenizer 和 max_len 参数。preprocess 函数接受这些参数
+    ，并返回一个包含输入 ID、标签和注意力掩码的字典，用于输入数据。
+    最后，代码将 data_dict 字典中的输入 ID、标签和注意力掩码分别分配给 SupervisedDataset 实例的 input_ids、
+    labels 和 attention_mask 属性。
+    这段代码是使用 Hugging Face Transformers 库训练语言模型的数据预处理流程的重要部分。它确保输入数据被正确
+    分词和格式化，以便在训练过程中使用。
+    '''
     def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, max_len: int):
         super(SupervisedDataset, self).__init__()
 
@@ -200,7 +264,7 @@ class SupervisedDataset(Dataset):
             attention_mask=self.attention_mask[i],
         )
 
-
+# 惰性监督学习
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
@@ -231,7 +295,24 @@ class LazySupervisedDataset(Dataset):
 
         return ret
 
-
+'''
+作用:创建用于监督微调的数据集和数据收集器
+输入:tokenizer,data_args,max_len
+输出:训练和评估数据集的字典
+选定的代码是一个名为make_supervised_data_module的函数，负责创建用于监督微调的数据集和数据收集器。它接受三个
+参数：tokenizer、data_args和max_len。tokenizer是transformers.PreTrainedTokenizer的一个实例，用于对输入
+数据进行标记化。data_args是一个DataArguments的实例，其中包含与数据相关的参数，如数据路径和是否使用惰性预处理。
+max_len是一个整数，指定输入序列的最大长度。
+该函数首先检查data_args.lazy_preprocess是否为True。如果是，它创建一个LazySupervisedDataset的实例；否则，
+创建一个SupervisedDataset的实例。LazySupervisedDataset和SupervisedDataset都是torch.utils.data.Dataset的
+自定义子类，后者是用于创建和操作数据集的Python内置库。
+然后，该函数使用json.load()从指定的JSON文件中加载训练数据。通过将训练数据、tokenizer和max_len作为参数传递，
+创建所选数据集类的实例（LazySupervisedDataset或SupervisedDataset）。
+如果指定了data_args.eval_data_path，则从指定的JSON文件加载评估数据，并通过将评估数据、tokenizer和max_len
+作为参数传递，创建所选数据集类的实例。如果未指定eval_data_path，则将eval_dataset设置为None。
+最后，该函数返回一个包含创建的train_dataset和eval_dataset（如果有的话）的字典。此字典可供训练脚本使用，以访问
+训练和评估数据集。
+'''
 def make_supervised_data_module(
     tokenizer: transformers.PreTrainedTokenizer, data_args, max_len,
 ) -> Dict:
@@ -252,7 +333,36 @@ def make_supervised_data_module(
 
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset)
 
-
+'''
+作用:训练模型并保存状态
+选定的代码是较大的Python脚本的一部分，使用Hugging Face Transformers库训练语言模型。该代码负责训练模型并保存
+其状态。
+以下是所选代码的详细说明：
+1.代码首先通过transformers.HfArgumentParser将命令行参数解析为数据类。此函数允许用户指定各种训练参数，如模型
+架构、训练数据集和训练算法。
+2.然后，代码检查用户是否指定使用DeepSpeed，这是一个流行的分布式训练库。如果是，则将分布式训练类型设置为
+“DeepSpeed”。
+3.接着，代码检查用户是否指定使用LoRA（层正则化），一种用于对神经网络的权重矩阵应用低秩近似的技术。如果是，则
+设置LoRA的适当参数，如滤波器数量（r）、正则化强度（lora_alpha）和目标模块（lora_target_modules）。
+4.代码接着从指定的模型架构加载模型和分词器。它还将填充侧设置为“right”，并禁用快速分词化。
+5.如果用户指定使用LoRA，代码使用prepare_model_for_kbit_training函数为量化训练准备模型。此函数启用梯度检查点，
+可以提高训练速度。
+6.代码接着创建一个LoraConfig对象，用于指定LoRA的参数。如果用户指定使用量化LoRA（QLoRA），则代码设置QLoRA的
+适当参数，如每个权重的位数（bits），并禁用指数线性单元（exllama）。
+7.接着，代码使用get_peft_model函数将LoRA配置应用于模型。此函数创建一个新模型，将指定的LoRA配置应用于原始模型
+的权重矩阵。
+8.代码接着打印模型的可训练参数，允许用户验证模型已正确配置。
+9.代码然后使用make_supervised_data_module函数加载训练数据。此函数创建一个包含训练数据的Dataset对象，以及
+一个可用于填充和截断输入数据的DataCollatorForLanguageModeling对象。
+10.代码接着创建一个Trainer对象，负责训练模型。Trainer对象接受模型、分词器、训练参数和训练数据作为输入，并使用
+指定的训练算法（如AdamW、Adafactor）来训练模型。
+11.代码然后使用Trainer对象的train方法训练模型。此方法将模型训练指定数量的epochs，并将其状态保存到指定的输出
+目录。
+12.最后，代码使用safe_save_model_for_hf_trainer函数保存模型的状态。此函数以可以被
+Hugging Face Transformers库使用的格式保存模型的状态，以及任何指定的偏差参数。
+总之，所选代码负责使用Hugging Face Transformers库训练语言模型，并保存其状态以供将来使用。它还包括各种检查和
+配置，以确保模型被正确和高效地训练。
+'''
 def train():
     global local_rank
 
