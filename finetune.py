@@ -64,7 +64,7 @@ class LoraArguments:
 
 '''
 作用:确保代码可以处理常规的 DeepSpeed 参数和 Zero3 特定的参数
-输入:param
+输入:param(判断参数)
 输出:从计算图中分离的param
 选定的代码是一个函数，它接受一个张量 param 作为输入，并返回一个张量。该函数检查输入张量是否
 具有 ds_id 属性，该属性指示它是一个 DeepSpeed 参数。如果是，函数将使用 
@@ -86,7 +86,7 @@ def maybe_zero_3(param):
 # Borrowed from peft.utils.get_peft_model_state_dict
 '''
 作用:筛选出符合条件的命名参数并应用maybe_zero_3处理参数，返回一个包含已微调模型状态字典的新字典
-输入:named_params,bias(本地等级)
+输入:named_params(命名参数),bias(本地等级)
 输出:保存模型状态的字典
 选定的代码是一个名为 get_peft_state_maybe_zero_3 的函数。这个函数用于收集使用 PyTorch Lora 库
 微调过的 PyTorch 模型的状态字典。该函数接受两个参数：named_params，一个包含模型命名参数的字典，和
@@ -152,7 +152,6 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
             state_dict = trainer.model.state_dict()
     if trainer.args.should_save and trainer.args.local_rank == 0:
         trainer._save(output_dir, state_dict=state_dict)
-
 
 '''
 作用:进行预训练
@@ -229,7 +228,7 @@ class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
     '''
     作用:类初始化，加载和预处理用于训练语言模型的数据
-    输入:raw_data, tokenizer, max_len
+    输入:raw_data(类属性数据),tokenizer(分词器),max_len(最大长度)
     所选代码是用于训练语言模型的 Python 脚本的一部分。该代码是一个名为 SupervisedDataset 的自定义 
     PyTorch Dataset 类的 __init__ 方法的一部分。这个类用于加载和预处理用于训练语言模型的数据。
     SupervisedDataset 类的 __init__ 方法接受三个参数：raw_data、tokenizer 和 max_len。raw_data 参数是
@@ -298,7 +297,7 @@ class LazySupervisedDataset(Dataset):
 
 '''
 作用:创建用于监督微调的数据集和数据收集器
-输入:tokenizer,data_args,max_len
+输入:tokenizer(分词器),data_args(数据),max_len(训练数据集的大小限制)
 输出:训练和评估数据集的字典
 选定的代码是一个名为make_supervised_data_module的函数，负责创建用于监督微调的数据集和数据收集器。它接受三个
 参数：tokenizer、data_args和max_len。tokenizer是transformers.PreTrainedTokenizer的一个实例，用于对输入
@@ -336,6 +335,9 @@ def make_supervised_data_module(
 
 '''
 作用:训练模型并保存状态
+训练过程:解析命令行->判断训练类型是否指定DeepSpeed->判断是否指定LoRA->加载模型和分词器->准备模型->指定LoRA参数
+->创建模型并将LoRA配置应用于模型->打印模型可训练参数->加载训练数据->创建Trainer负责训练模型->
+用Trainer的train方法训练指定数量epochs来训练模型->保存模型的状态
 选定的代码是较大的Python脚本的一部分，使用Hugging Face Transformers库训练语言模型。该代码负责训练模型并保存
 其状态。
 以下是所选代码的详细说明：
@@ -365,9 +367,8 @@ Hugging Face Transformers库使用的格式保存模型的状态，以及任何�
 配置，以确保模型被正确和高效地训练。
 '''
 def train():
-    global local_rank  # 声明全局变量 local_rank，用于存储本地的GPU等级
+    global local_rank
 
-    # 使用 Hugging Face 的 HfArgumentParser 解析命令行参数
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments, LoraArguments)
     )
@@ -378,16 +379,15 @@ def train():
         lora_args,
     ) = parser.parse_args_into_dataclasses()
 
-    # 如果使用 deepspeed 并且当前环境的 GPU 数量为 1，设置分布式训练类型为 DEEPSPEED
+    # This serves for single-gpu qlora.
     if getattr(training_args, 'deepspeed', None) and int(os.environ.get("WORLD_SIZE", 1))==1:
         training_args.distributed_state.distributed_type = DistributedType.DEEPSPEED
 
-    local_rank = training_args.local_rank  # 获取当前进程的本地等级
+    local_rank = training_args.local_rank
 
     device_map = None
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     ddp = world_size != 1
-    # 如果使用 QLoRA（一种低秩正则化技术）
     if lora_args.q_lora:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)} if ddp else "auto"
         if len(training_args.fsdp) > 0 or deepspeed.is_deepspeed_zero3_enabled():
@@ -395,10 +395,7 @@ def train():
                 "FSDP or ZeRO3 are incompatible with QLoRA."
             )
 
-    # 检查模型是否为 chat 模型
     is_chat_model = 'chat' in model_args.model_name_or_path.lower()
-
-    # 检查 LoRA 和 ZeRO3 是否兼容
     if (
             training_args.use_lora
             and not lora_args.q_lora
@@ -407,12 +404,11 @@ def train():
     ):
         raise RuntimeError("ZeRO3 is incompatible with LoRA when finetuning on base model.")
 
-    # 设置模型加载参数，决定是否优化 CPU 内存使用
     model_load_kwargs = {
         'low_cpu_mem_usage': not deepspeed.is_deepspeed_zero3_enabled(),
     }
 
-    # 设置 RoPE（Recurrent Positional Encoding）缩放因子
+    # Set RoPE scaling factor
     config = transformers.AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
@@ -420,7 +416,7 @@ def train():
     )
     config.use_cache = False
 
-    # 加载预训练模型和分词器
+    # Load model and tokenizer
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         config=config,
@@ -444,7 +440,6 @@ def train():
     )
     tokenizer.pad_token_id = tokenizer.eod_id
 
-    # 如果使用 LoRA，设置相关配置
     if training_args.use_lora:
         if lora_args.q_lora or is_chat_model:
             modules_to_save = None
@@ -457,41 +452,34 @@ def train():
             lora_dropout=lora_args.lora_dropout,
             bias=lora_args.lora_bias,
             task_type="CAUSAL_LM",
-            modules_to_save=modules_to_save  # 用于添加新令牌的参数
+            modules_to_save=modules_to_save  # This argument serves for adding new tokens.
         )
         if lora_args.q_lora:
-            # 准备模型以进行 k-bit 训练
             model = prepare_model_for_kbit_training(
                 model, use_gradient_checkpointing=training_args.gradient_checkpointing
             )
 
-        # 获取经过 LoRA 配置的模型
         model = get_peft_model(model, lora_config)
 
-        # 打印 peft 可训练参数
+        # Print peft trainable params
         model.print_trainable_parameters()
 
-        # 如果使用了梯度检查点，启用输入梯度要求
         if training_args.gradient_checkpointing:
             model.enable_input_require_grads()
 
-    # 加载数据集
+    # Load data
     data_module = make_supervised_data_module(
         tokenizer=tokenizer, data_args=data_args, max_len=training_args.model_max_length
     )
 
-    # 初始化 Trainer 对象
+    # Start trainner
     trainer = Trainer(
         model=model, tokenizer=tokenizer, args=training_args, **data_module
     )
 
-    # 开始模型训练
     trainer.train()
-
-    # 保存模型状态
     trainer.save_state()
 
-    # 保存模型的状态和偏置参数
     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, bias=lora_args.lora_bias)
 
 
